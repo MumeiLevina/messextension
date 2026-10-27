@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>Messenger Fixture</title>
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; display: flex; height: 100vh; }
+  #sidebar { width: 280px; border-right: 1px solid #ccc; overflow-y: auto; }
+  #chat { flex: 1; display: flex; flex-direction: column; }
+  #header { padding: 10px; border-bottom: 1px solid #ddd; }
+  #message-list { flex: 1; overflow-y: auto; padding: 10px; }
+  #composer { padding: 10px; border-top: 1px solid #ddd; }
+  .bubble { max-width: 60%; padding: 8px 12px; border-radius: 16px; margin: 4px 0; }
+  .bubble.incoming { background: #eee; margin-right: auto; }
+  .bubble.outgoing { background: #d8e7ff; margin-left: auto; }
+</style>
+</head>
+<body>
+  <div id="sidebar" role="list" aria-label="Danh sách trò chuyện">
+    <div role="listitem">Nguyễn Văn A</div>
+    <div role="listitem">Trần Thị B</div>
+  </div>
+
+  <div id="chat" role="main">
+    <div id="header" role="banner">
+      <h2 id="thread-title">Nguyễn Văn A</h2>
+    </div>
+
+    <div id="message-list" role="list" aria-label="Tin nhắn">
+      <div role="listitem" class="bubble incoming" data-message-id="m1">
+        <span dir="auto">Chào bạn, hôm nay bạn khỏe không?</span>
+        <span title="10:30">10:30</span>
+      </div>
+      <div role="listitem" class="bubble outgoing" data-message-id="m2">
+        <span dir="auto">Khỏe, cảm ơn. Hôm nay tôi bận một chút.</span>
+      </div>
+      <div role="listitem" class="bubble incoming" data-message-id="m3">
+        <span dir="auto">Bạn bận đến mấy giờ?</span>
+      </div>
+    </div>
+
+    <div id="composer">
+      <div contenteditable="true" role="textbox" aria-label="Nhắn tin">Enter để gửi</div>
+    </div>
+  </div>
+</body>
+</html>

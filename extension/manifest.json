@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Echo Assistant",
+  "version": "0.2.0",
+  "description": "Theo dõi tin Messenger mới, đọc tin đến bằng TTS, gõ bằng giọng nói và sao chép bản nháp để bạn tự gửi.",
+  "minimum_chrome_version": "120",
+  "permissions": ["sidePanel", "storage", "activeTab", "clipboardWrite"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; worker-src 'self'; connect-src 'self'"
+  },
+  "host_permissions": ["https://www.facebook.com/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Echo Assistant"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.facebook.com/messages*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
