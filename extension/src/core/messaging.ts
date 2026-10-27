@@ -16,6 +16,8 @@ export const MSG = {
   setInterval: 'echo:setInterval',
   clearConversation: 'echo:clearConversation',
   ackConversationChange: 'echo:ackConversationChange',
+  composerStatus: 'echo:composerStatus',
+  insertDraft: 'echo:insertDraft',
   broadcastState: 'echo:broadcast-state',
 } as const;
 

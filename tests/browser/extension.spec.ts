@@ -75,6 +75,30 @@ async function finishTts(panel: Page) {
   await panel.evaluate(() => (window as unknown as { echoTtsFixture: { finish(): void } }).echoTtsFixture.finish());
 }
 
+async function installSyntheticStt(panel: Page) {
+  await panel.evaluate(() => {
+    class Recognition {
+      lang = ''; continuous = false; interimResults = false; maxAlternatives = 1; aborted = false;
+      onstart: (() => void) | null = null;
+      onend: (() => void) | null = null;
+      onresult: ((e: unknown) => void) | null = null;
+      onerror: ((e: unknown) => void) | null = null;
+      constructor() { Object.assign(window, { echoRecognition: this }); }
+      start() { this.onstart?.(); }
+      stop() { this.onend?.(); }
+      abort() { this.aborted = true; this.onend?.(); }
+    }
+    Object.assign(window, { SpeechRecognition: Recognition });
+  });
+}
+
+async function recognizeFinal(panel: Page, text: string) {
+  await panel.evaluate(value => {
+    const rec = (window as unknown as { echoRecognition: { onresult: (e: unknown) => void } }).echoRecognition;
+    rec.onresult({ resultIndex: 0, results: [Object.assign([{ transcript: value }], { isFinal: true })] });
+  }, text);
+}
+
 test('TTS opt-in reads only new incoming IDs in order, survives polling and cancels on pause/Stop', async ({ extension: e }) => {
   expect(await e.panel.evaluate(() => ({ synthesis: typeof speechSynthesis, utterance: typeof SpeechSynthesisUtterance })))
     .toEqual({ synthesis: 'object', utterance: 'function' });
@@ -231,7 +255,7 @@ test('supports editable drafts and manual copy without altering the Messenger co
   await e.panel.locator('textarea').fill('Xin chào, đây là bản nháp tiếng Việt.');
   await e.panel.getByRole('button', { name: 'Sao chép' }).click();
   await expect(e.panel.getByRole('button', { name: 'Đã sao chép' })).toBeVisible();
-  await expect(e.messenger.getByRole('textbox')).toHaveText('Enter để gửi');
+  await expect(e.messenger.getByRole('textbox')).toHaveText('');
   expect(await e.panel.getByRole('button', { name: /^Gửi$/ }).count()).toBe(0);
   const nativeSpeech = await e.panel.evaluate(() => ({
     supported: 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window,
@@ -305,9 +329,66 @@ test('synthetic Vietnamese speech uses microphone permission flow, Stop and an e
   await expect(e.panel.locator('textarea')).toHaveValue('Xin chào Việt Nam');
   await e.panel.locator('textarea').fill('Xin chào Việt Nam — đã chỉnh sửa');
   await expect(e.panel.locator('textarea')).toHaveValue('Xin chào Việt Nam — đã chỉnh sửa');
-  await expect(e.messenger.getByRole('textbox')).toHaveText('Enter để gửi');
+  await expect(e.messenger.getByRole('textbox')).toHaveText('');
   await e.panel.screenshot({ path: '.artifacts/validation/synthetic-draft.png' });
   expect(e.errors).toEqual([]);
+});
+
+test('STT replays one final once but retains identical utterances from separate recordings', async ({ extension: e }) => {
+  await installSyntheticStt(e.panel);
+  await e.panel.getByRole('tab', { name: 'Bản nháp', exact: true }).click();
+  await expect(e.panel.getByTestId('draft-recipient')).toHaveText('Nguyễn Văn A');
+  await e.panel.getByRole('tab', { name: 'Giọng nói', exact: true }).click();
+  for (let i = 0; i < 2; i++) {
+    await e.panel.getByRole('button', { name: '🎙 Bắt đầu ghi âm', exact: true }).click();
+    await expect(e.panel.getByText('Đang nghe', { exact: true })).toBeVisible();
+    await recognizeFinal(e.panel, '  chào Việt Nam  ');
+    await recognizeFinal(e.panel, '  chào Việt Nam  ');
+    await expect(e.panel.getByRole('button', { name: 'Chèn vào bản nháp', exact: true })).toBeDisabled();
+    await e.panel.getByRole('button', { name: '⏹ Dừng', exact: true }).click();
+    await e.panel.getByRole('button', { name: 'Chèn vào bản nháp', exact: true }).click();
+    await expect(e.panel.getByRole('button', { name: 'Chèn vào bản nháp', exact: true })).toBeDisabled();
+  }
+  await e.panel.getByRole('tab', { name: 'Bản nháp', exact: true }).click();
+  await expect(e.panel.locator('textarea')).toHaveValue('  chào Việt Nam    chào Việt Nam  ');
+  await e.panel.getByTestId('insert-messenger').click();
+  await expect(e.panel.getByTestId('insert-messenger')).toContainText('Đã chèn');
+  const visible = () => e.messenger.getByRole('textbox').evaluate(el => (el as HTMLElement).innerText.replace(/\u00a0/g, ' '));
+  expect(await visible()).toBe('  chào Việt Nam    chào Việt Nam  ');
+  await e.panel.getByTestId('insert-messenger').click();
+  expect(await visible()).toBe('  chào Việt Nam    chào Việt Nam  ');
+});
+
+test('thread navigation cancels STT and late results cannot change the retained draft', async ({ extension: e }) => {
+  await installSyntheticStt(e.panel);
+  await e.panel.getByRole('tab', { name: 'Bản nháp', exact: true }).click();
+  await expect(e.panel.getByTestId('draft-recipient')).toHaveText('Nguyễn Văn A');
+  await e.panel.locator('textarea').fill('draft for A');
+  await e.panel.getByRole('tab', { name: 'Giọng nói', exact: true }).click();
+  await e.panel.getByRole('button', { name: '🎙 Bắt đầu ghi âm', exact: true }).click();
+  await expect(e.panel.getByText('Đang nghe', { exact: true })).toBeVisible();
+  await recognizeFinal(e.panel, 'old recipient transcript');
+  await e.messenger.evaluate(() => {
+    const input = document.querySelector('[contenteditable="true"]')!;
+    input.replaceWith(input.cloneNode(false));
+    document.querySelector('#thread-title')!.textContent = 'Trần Thị B';
+    history.pushState({}, '', '/messages/t/fixture-b');
+  });
+  await expect.poll(() => e.panel.evaluate(() => (window as unknown as { echoRecognition: { aborted: boolean } }).echoRecognition.aborted)).toBe(true);
+  await recognizeFinal(e.panel, 'late transcript must be ignored');
+  await expect(e.panel.getByRole('button', { name: 'Chèn vào bản nháp', exact: true })).toBeDisabled();
+  // A new recording for B must not be combined with the retained draft for A.
+  await e.panel.getByRole('button', { name: '🎙 Bắt đầu ghi âm', exact: true }).click();
+  await expect(e.panel.getByText('Đang nghe', { exact: true })).toBeVisible();
+  await recognizeFinal(e.panel, 'transcript for B');
+  await e.panel.getByRole('button', { name: '⏹ Dừng', exact: true }).click();
+  await e.panel.getByRole('button', { name: 'Chèn vào bản nháp', exact: true }).click();
+  await expect(e.panel.locator('.notice.warn').filter({ hasText: 'bản nháp dành cho người khác' })).toBeVisible();
+  await expect(e.panel.getByText('transcript for B', { exact: true })).toBeVisible();
+  await e.panel.getByRole('tab', { name: 'Bản nháp', exact: true }).click();
+  await expect(e.panel.locator('textarea')).toHaveValue('draft for A');
+  await e.panel.getByTestId('insert-messenger').click();
+  await expect(e.messenger.getByRole('textbox')).toHaveText('');
 });
 
 test('microphone denial leaves manual drafting usable', async ({ extension: e }) => {
@@ -568,6 +649,184 @@ test('query and E2EE route changes for the same thread do not reset its baseline
   expect(after.diagnostics.monitoringSessionStartedAt).toBe(before.diagnostics.monitoringSessionStartedAt);
   expect(after.diagnostics.baselineEstablishedAt).toBe(before.diagnostics.baselineEstablishedAt);
   expect(after.messages.map((m: { text: string }) => m.text)).toEqual(['Keep this new message']);
+});
+
+test('inserts the draft into the selected Messenger composer without sending', async ({ extension: e }) => {
+  await e.messenger.bringToFront();
+  await e.panel.getByRole('tab', { name: 'Bản nháp', exact: true }).click();
+  await expect(e.panel.getByTestId('draft-recipient')).toHaveText('Nguyễn Văn A');
+  const composer = e.messenger.getByRole('textbox');
+  expect(await composer.textContent()).toBe('');
+  await e.messenger.evaluate(() => {
+    const send = document.createElement('button'); send.textContent = 'Gửi';
+    send.addEventListener('click', () => { document.body.dataset.sent = 'yes'; });
+    document.querySelector('#composer')!.append(send);
+  });
+  await e.panel.locator('textarea').fill('Xin chào, tôi nhận được tin của bạn.');
+  await e.panel.getByTestId('insert-messenger').click();
+  await expect(e.panel.getByRole('button', { name: '✓ Đã chèn vào Messenger' })).toBeVisible();
+  await expect(composer).toHaveText('Xin chào, tôi nhận được tin của bạn.');
+  // A second click must not duplicate the text already in the composer.
+  await e.panel.getByTestId('insert-messenger').click();
+  await expect(composer).toHaveText('Xin chào, tôi nhận được tin của bạn.');
+  // A real send target exists, but insertion must never invoke it.
+  expect(await e.messenger.evaluate(() => document.body.dataset.sent)).toBeUndefined();
+  expect(await e.panel.getByRole('button', { name: /^Gửi$/ }).count()).toBe(0);
+});
+
+test('composer insertion refuses when the selected thread changed', async ({ extension: e }) => {
+  await e.panel.getByRole('tab', { name: 'Bản nháp', exact: true }).click();
+  await expect(e.panel.getByTestId('draft-recipient')).toHaveText('Nguyễn Văn A');
+  await e.panel.locator('textarea').fill('Nhắn cho A');
+  const status = await e.panel.evaluate(() => chrome.runtime.sendMessage({ type: 'echo:composerStatus' }));
+  const draft = (text: string, expectedKey: string, mode: 'append' | 'replace' = 'append') =>
+    e.panel.evaluate((payload) => chrome.runtime.sendMessage(payload), {
+      type: 'echo:insertDraft', text, mode, expectedKey, expectedTabId: status.tabId,
+    }) as Promise<{ ok: boolean; error: string | null }>;
+  const composer = e.messenger.getByRole('textbox');
+
+  // The live thread is fixture-a. A stale expectedKey (fixture-b) is refused
+  // and must not write anything.
+  const stale = await draft('Nhắn cho B', 'thread:fixture-b');
+  expect(stale).toMatchObject({ ok: false, error: 'conversation-changed' });
+  await expect(composer).toHaveText('');
+  await expect(e.panel.locator('textarea')).toHaveValue('Nhắn cho A');
+
+  // The matching key succeeds.
+  const ok = await draft('Nhắn cho A', 'thread:fixture-a');
+  expect(ok).toMatchObject({ ok: true });
+  await expect(composer).toHaveText('Nhắn cho A');
+
+  // Reset the composer so the next step starts from a clean placeholder.
+  await e.messenger.evaluate(() => {
+    (document.querySelector('[contenteditable="true"]') as HTMLElement).textContent = '';
+  });
+
+  // The user now switches the live thread to fixture-b.
+  await e.messenger.evaluate(() => {
+    document.querySelector('#message-list')!.replaceChildren();
+    document.querySelector('#thread-title')!.textContent = 'Trần Thị B';
+    history.pushState({}, '', '/messages/t/fixture-b');
+  });
+
+  // The same draft, still carrying the old thread key, is refused and never
+  // leaks into the newly selected thread's composer.
+  const rejected = await draft('Nhắn cho A', 'thread:fixture-a');
+  expect(rejected).toMatchObject({ ok: false, error: 'conversation-changed' });
+  await expect(composer).toHaveText('');
+
+  // The draft survives the refused insertion.
+  await expect(e.panel.locator('textarea')).toHaveValue('Nhắn cho A');
+  // Exercise the UI after its live state has caught up, too: it must retain
+  // the original draft recipient rather than silently adopt the new thread.
+  await expect(e.panel.getByTestId('confirm-recipient')).toBeVisible();
+  await e.panel.getByTestId('insert-messenger').click();
+  await expect(e.panel.locator('.notice.danger')).toContainText('Cuộc trò chuyện');
+  await expect(composer).toHaveText('');
+  await expect(e.panel.locator('textarea')).toHaveValue('Nhắn cho A');
+});
+
+test('existing composer draft text is preserved in append mode', async ({ extension: e }) => {
+  await e.messenger.bringToFront();
+  // Give the composer a real draft (not a placeholder).
+  await e.messenger.evaluate(() => {
+    const composer = document.querySelector('[contenteditable="true"]');
+    composer!.textContent = 'bản nháp sẵn có';
+  });
+  await e.panel.getByRole('tab', { name: 'Bản nháp', exact: true }).click();
+  await expect(e.panel.getByTestId('draft-recipient')).toHaveText('Nguyễn Văn A');
+  await e.panel.locator('textarea').fill('câu mới');
+  await e.panel.getByTestId('insert-messenger').click();
+  await expect(e.messenger.getByRole('textbox')).toHaveText('bản nháp sẵn có câu mới');
+  await expect(e.panel.getByTestId('insert-messenger')).toContainText('Đã chèn');
+  await e.panel.getByTestId('insert-messenger').click();
+  await expect(e.messenger.getByRole('textbox')).toHaveText('bản nháp sẵn có câu mới');
+});
+
+test('a controlled editor rejecting insertion preserves the panel draft and reports failure', async ({ extension: e }) => {
+  await e.messenger.evaluate(() => {
+    const input = document.querySelector<HTMLElement>('[contenteditable="true"]')!;
+    input.textContent = 'existing';
+    input.addEventListener('input', () => queueMicrotask(() => { input.textContent = 'existing'; }));
+  });
+  await e.panel.getByRole('tab', { name: 'Bản nháp', exact: true }).click();
+  await expect(e.panel.getByTestId('draft-recipient')).toHaveText('Nguyễn Văn A');
+  await e.panel.locator('textarea').fill('keep this draft');
+  await e.panel.getByTestId('insert-messenger').click();
+  await expect(e.panel.locator('.notice.danger')).toContainText('không thành công');
+  await expect(e.panel.locator('textarea')).toHaveValue('keep this draft');
+  await expect(e.messenger.getByRole('textbox')).toHaveText('existing');
+  await expect(e.panel.getByTestId('insert-messenger')).not.toContainText('Đã chèn');
+});
+
+test('textarea insertion notifies its controller and preserves whitespace; replace is explicit', async ({ extension: e }) => {
+  await e.messenger.evaluate(() => {
+    const input = document.createElement('textarea'); input.setAttribute('aria-label', 'Nhắn tin');
+    input.value = 'old\n';
+    input.addEventListener('input', () => { input.dataset.accepted = input.value; });
+    document.querySelector('[contenteditable="true"]')!.replaceWith(input);
+  });
+  await e.panel.getByRole('tab', { name: 'Bản nháp', exact: true }).click();
+  await expect(e.panel.getByTestId('draft-recipient')).toHaveText('Nguyễn Văn A');
+  await e.panel.locator('textarea').fill('  mới  ');
+  await e.panel.getByTestId('insert-messenger').click();
+  await expect(e.panel.getByTestId('insert-messenger')).toContainText('Đã chèn');
+  await expect(e.messenger.getByRole('textbox')).toHaveValue('old\n  mới  ');
+  await expect(e.messenger.getByRole('textbox')).toHaveAttribute('data-accepted', 'old\n  mới  ');
+  await e.panel.locator('textarea').fill('replacement');
+  await e.panel.getByLabel('Cách chèn vào ô soạn').selectOption('replace');
+  await e.panel.getByTestId('insert-messenger').click();
+  await expect(e.messenger.getByRole('textbox')).toHaveValue('replacement');
+});
+
+test('ambiguous composers refuse insertion without losing either draft', async ({ extension: e }) => {
+  await e.panel.getByRole('tab', { name: 'Bản nháp', exact: true }).click();
+  await expect(e.panel.getByTestId('draft-recipient')).toHaveText('Nguyễn Văn A');
+  await e.panel.locator('textarea').fill('panel draft');
+  await e.messenger.evaluate(() => {
+    const second = document.createElement('textarea'); second.value = 'second draft';
+    document.querySelector('#composer')!.append(second);
+  });
+  await e.panel.getByTestId('insert-messenger').click();
+  await expect(e.panel.locator('.notice.danger')).toContainText('Nhiều ô soạn');
+  await expect(e.panel.locator('textarea')).toHaveValue('panel draft');
+  await expect(e.messenger.getByRole('textbox').nth(0)).toHaveText('');
+  await expect(e.messenger.getByRole('textbox').nth(1)).toHaveValue('second draft');
+});
+
+test('switching to another tab for the same thread cannot silently retarget the draft', async ({ extension: e }) => {
+  await e.panel.getByRole('tab', { name: 'Bản nháp', exact: true }).click();
+  await expect(e.panel.getByTestId('draft-recipient')).toHaveText('Nguyễn Văn A');
+  await e.panel.locator('textarea').fill('original tab only');
+  const other = await e.context.newPage();
+  await other.goto('https://www.facebook.com/messages/t/fixture-a');
+  await other.bringToFront();
+  await e.panel.getByTestId('insert-messenger').click();
+  await expect(e.panel.locator('.notice.danger')).toContainText('Cuộc trò chuyện');
+  await expect(other.getByRole('textbox')).toHaveText('');
+  await expect(e.messenger.getByRole('textbox')).toHaveText('');
+  await expect(e.panel.locator('textarea')).toHaveValue('original tab only');
+});
+
+test('a retained draft can target a new thread only after explicit recipient confirmation', async ({ extension: e }) => {
+  await e.panel.getByRole('tab', { name: 'Bản nháp', exact: true }).click();
+  await expect(e.panel.getByTestId('draft-recipient')).toHaveText('Nguyễn Văn A');
+  await e.panel.locator('textarea').fill('retained draft');
+  await e.messenger.evaluate(() => {
+    const old = document.querySelector('[contenteditable="true"]')!;
+    old.replaceWith(old.cloneNode(false));
+    document.querySelector('#message-list')!.replaceChildren();
+    document.querySelector('#thread-title')!.textContent = 'Trần Thị B';
+    history.pushState({}, '', '/messages/t/fixture-b');
+  });
+  await expect(e.panel.getByTestId('confirm-recipient')).toBeVisible();
+  await e.panel.getByTestId('insert-messenger').click();
+  await expect(e.messenger.getByRole('textbox')).toHaveText('');
+  await expect(e.panel.locator('textarea')).toHaveValue('retained draft');
+  await e.panel.getByTestId('confirm-recipient').click();
+  await expect(e.panel.getByTestId('draft-recipient')).toHaveText('Trần Thị B');
+  await e.panel.getByTestId('insert-messenger').click();
+  await expect(e.messenger.getByRole('textbox')).toHaveText('retained draft');
 });
 
 test('three outgoing messages remain exactly three through delivery updates and rerenders', async ({ extension: e }) => {

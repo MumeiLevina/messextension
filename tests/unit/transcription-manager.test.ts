@@ -136,6 +136,14 @@ describe('TranscriptionManager', () => {
 });
 
 describe('SpeechEngine', () => {
+  it('preserves recognized whitespace and accents exactly', () => {
+    const events: string[] = [];
+    const engine = new SpeechEngine({ onEvent: e => { if (e.kind === 'final') events.push(e.transcript!); } });
+    engine.start();
+    FakeRecognition.last!.final('  Xin chào Việt Nam  ');
+    expect(events).toEqual(['  Xin chào Việt Nam  ']);
+    engine.dispose();
+  });
   it('does not append a replayed final result, but preserves identical separate utterances', () => {
     const events: string[] = [];
     const engine = new SpeechEngine({ onEvent: e => { if (e.kind === 'final') events.push(e.transcript!); } });

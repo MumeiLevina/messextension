@@ -1,3 +1,46 @@
+# Composer / TTS / STT takeover — 27 October 2026 (Asia/Saigon)
+
+Local branch: `feature/messenger-tts-stt-complete`; base: `6c3ad2d734c87b5b4b124483f6d92eaee436a096`. Before any edit, status/branches/log/full diff were read. Claude's seven modified files and two untracked files were copied intact to `.artifacts/handoff-20261027-083029/`. No hard reset, clean, replacement checkout, security-setting change or automatic message send was used.
+
+## Current verification
+
+| Check | Result |
+| --- | --- |
+| `npm run typecheck` | PASS |
+| `npm run lint` | PASS |
+| `npm test` | PASS: 181/181 across 14 files; 162 unit, 15 integration, 4 benchmark; zero failed/skipped |
+| Composer unit coverage | 23 tests; all 11 inherited cases retained and extended |
+| `npm run test:browser` | PASS: 32/32; original 25 retained, plus five composer and two STT cases; zero failed/skipped |
+| `npm run build` | PASS: production Vite/WASM build, previous dist preserved |
+| `npm run validate:build` | PASS: MV3 entry points, icons, local OCR worker/core/WASM and Vietnamese/English data |
+| Exact extraction | 863/863 (100%); zero incorrect, missed, duplicate or ordering events; all 50 scenarios retained |
+| Full-run correctness workload | 4,181 ms, unchanged 5,000 ms timeout; fixture construction 139.12 ms, extraction 4,030.34 ms |
+| jsdom CSS cost within extraction | 2,179 `getComputedStyle` calls, 3,729.53 ms (~93% of extraction time) |
+| Extraction latency | 56.94 ms per 100 messages, average of 50 runs; unchanged <100 ms assertion |
+| Live Messenger A/B, real microphone/service, Vietnamese speaker output, native docked Side Panel | NOT RUN — MANUAL VERIFICATION REQUIRED |
+
+Logs: `.artifacts/handoff-validation/{typecheck,lint,test,build,test-browser,validate-build,bench}.log`; latest browser JSON: `test-results/browser-results.json`. Build: `C:\Users\hantu\.codex\messenger\echo-assistant\dist`.
+
+## Failure diagnosis and repairs
+
+The inherited test `composer insertion refuses when the selected thread changed` **passed unchanged on the first isolated run (1.3 s)**. The reported historical 24-pass/1-fail run could not be reproduced from the supplied local snapshot, and its failing trace was unavailable; a definitive historical root cause cannot honestly be assigned. The supplied test's draft-preservation assertion filled the draft *after* rejection, so it did not establish survival. It now creates the draft first, verifies it after each rejection, and exercises both direct extension messaging and the UI after the new live recipient is detected.
+
+The audit found concrete implementation defects: a null expected conversation key bypassed recipient validation while monitoring was idle; the draft automatically followed the panel's latest conversation; retries could duplicate an appended suffix; contenteditable replacement bypassed the editor's editing transaction; and insertion returned success without checking editor acceptance. The continuation requires a stable thread key, original tab ID and pinned draft recipient; rechecks active tab after awaited routing, target after focus, and selected/visible target after reconciliation; uses browser editing/native textarea input; and checks the resulting visible text. Ambiguous, disabled, hidden, unrecognized and cross-thread reused editor nodes fail conservatively. A bounded page-memory operation ledger covers retries, existing prefixes and composer replacement. Failures never clear the panel draft. No Send event/button/keyboard shortcut is triggered.
+
+Fixtures now model placeholders as attributes rather than literal editable user text. Multi-line rich editors use `white-space: pre-wrap`; a new end-to-end STT test caught the previous fixture collapsing intentional spaces. Visible rich-editor spacing is compared with Chromium NBSP representation accounted for. Rejection tests restore the editor value after input and require failure instead of false success. The send regression supplies an actual Send button and verifies that it is never invoked.
+
+STT final handling preserves recognized whitespace/accents, still deduplicates by result index, and keeps identical utterances from separate recordings. Delivery is allowed after Stop; it verifies the source recipient, refuses combining another recipient's transcript with an existing draft, and retains an undelivered final in the Voice view. Detected recipient changes dispose recognition; late events cannot change the retained draft. A full rerun exposed a separate initial-discovery race: recording could begin before the first composer-status response, then that response changed the VoiceRecorder key and disposed the recording before Stop. Recording/retry now wait for an identified recipient, preserving disposal on actual target changes. TTS policy/queue code was not edited; its existing unit and browser cases remain green.
+
+## Benchmark timeout investigation
+
+An earlier full run in this takeover produced 178/179 passes with one timeout: the same correctness workload took 5,041 ms (fixture 174.22 ms; extraction 4,849.47 ms), while accuracy was still 863/863 and latency 58.59 ms. Separate benchmark runs passed 4/4; one instrumented run took 4,415 ms with 3,919.32 ms spent in jsdom computed CSS. Final full verification passed at 4,181 ms with the figures above. This demonstrates substantial cold-DOM/jsdom CSS overhead and timing variance near the aggregate timeout. It does **not** isolate Windows itself or prove CPU contention as the sole cause; warm-browser latency must not be inferred from jsdom timings. No timeout, correctness target, scenario count or latency limit was increased/reduced. No persistent visibility cache was added across scans, so CSS visibility changes remain observable.
+
+The live acceptance gate and A/B instructions are in [docs/MESSENGER_DOM_QA.md](docs/MESSENGER_DOM_QA.md). Synthetic speech and editor tests prove extension transport/policy behavior, not real Facebook editor state, audio recognition or audible Vietnamese speech. Use manual copy/paste if real Messenger insertion cannot be confirmed.
+
+---
+
+The following records are historical; their old Git state and test counts do not describe this takeover.
+
 # TTS execution record — 25 October 2026 (Asia/Saigon)
 
 Extension **0.2.0**, adapter **2.2.1**, adds opt-in incoming-message TTS. Build directory remains `C:\Users\hantu\.codex\messenger\echo-assistant\dist`; packaged build is `release/echo-assistant-0.2.0-tts.zip`. Previous production builds are preserved by the existing atomic build script. No security setting, native dependency, build-tool override or manifest permission was changed.

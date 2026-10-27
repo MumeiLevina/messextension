@@ -9,7 +9,7 @@
 .msg-row { display: flex; margin: 8px 0; } .msg-row.out { justify-content: flex-end; }
 .msg-wrapper { max-width: 60%; } .msg-bubble { border-radius: 14px; padding: 10px; background: #eee; }
 .msg-row.out .msg-bubble { background: #d8e7ff; } .msg-time { display: block; font-size: 11px; }
-#composer { padding: 12px; border-top: 1px solid #ccc; } [contenteditable] { min-height: 40px; }
+#composer { padding: 12px; border-top: 1px solid #ccc; } [contenteditable] { min-height: 40px; white-space: pre-wrap; }
 </style></head><body><div id="app">
 <nav id="left-rail" aria-label="Danh sách trò chuyện"><div>SIDEBAR MUST NOT BE EXTRACTED</div><div>Other conversation preview</div></nav>
 <div id="thread">
@@ -20,5 +20,5 @@
     <div class="msg-row in" data-message-id="modern-3"><div class="msg-wrapper"><div class="msg-bubble"><div dir="auto"><div>dòng một</div><div>dòng hai</div></div><button aria-label="reaction">Thích 2</button></div></div></div>
     <div class="msg-row in" data-message-id="modern-4"><div class="msg-wrapper"><div class="msg-bubble"><span dir="auto">OK</span></div></div></div>
   </div>
-  <div id="composer"><div contenteditable="true" role="textbox" aria-label="Nhắn tin">Enter để gửi</div></div>
+  <div id="composer"><div contenteditable="true" role="textbox" aria-label="Nhắn tin" aria-placeholder="Enter để gửi"></div></div>
 </div></div></body></html>

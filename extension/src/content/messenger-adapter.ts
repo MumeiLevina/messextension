@@ -127,11 +127,18 @@ function isHidden(el: Element, styles = new WeakMap<Element, CSSStyleDeclaration
   return false;
 }
 
+/** All visible composers on the page. Zero or several are ambiguous. */
+export function findComposers(root: Document | Element, styles = new WeakMap<Element, CSSStyleDeclaration>()): HTMLElement[] {
+  return Array.from(
+    root.querySelectorAll<HTMLElement>('[contenteditable="true"], textarea:not([hidden])'),
+  ).filter((el) => !isHidden(el, styles) && !el.matches(':disabled, [readonly], [aria-disabled="true"]') &&
+    !el.closest('[inert], nav, [role="navigation"], [role="search"]') &&
+    !el.parentElement?.closest('[contenteditable="true"]'));
+}
+
 /** The composer Messenger renders for the conversation the user selected. */
 export function findComposer(root: Document | Element, styles = new WeakMap<Element, CSSStyleDeclaration>()): HTMLElement | null {
-  const candidates = Array.from(
-    root.querySelectorAll<HTMLElement>('[contenteditable="true"], textarea:not([hidden])'),
-  ).filter((el) => !isHidden(el, styles) && !el.closest('nav, [role="navigation"], [role="search"]'));
+  const candidates = findComposers(root, styles);
   // Multiple visible composers are ambiguous. Never choose a zero-size fallback.
   return candidates.length === 1 ? candidates[0]! : null;
 }

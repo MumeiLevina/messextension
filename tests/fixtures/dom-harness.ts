@@ -105,7 +105,7 @@ export function buildMessengerDom(options: FixtureOptions = {}): HTMLElement {
     input.setAttribute('contenteditable', 'true');
     input.setAttribute('role', 'textbox');
     input.setAttribute('aria-label', 'Nhắn tin');
-    input.textContent = 'Enter để gửi';
+    input.setAttribute('aria-placeholder', 'Enter để gửi');
     composer.appendChild(input);
     chat.appendChild(composer);
   }

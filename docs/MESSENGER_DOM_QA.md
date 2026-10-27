@@ -1,5 +1,7 @@
 # Messenger new-message-only acceptance check
 
+**27 October 2026: MANUAL VERIFICATION REQUIRED.** The automated takeover results do not replace the live two-account acceptance below. Never mark this build production-ready until the relevant live cases have been performed.
+
 Use only conversations you approve for inspection. Log in manually. Do not share passwords, cookies, tokens, private API responses, or private message text with diagnostics. Echo Assistant must never send a message automatically.
 
 ## Install the exact current build
@@ -60,4 +62,20 @@ After reloading the unpacked extension and Messenger, keep the Side Panel open. 
 5. Try a long message; all its segments should be spoken in order. Change speed and verify the next segments use it.
 6. Press **Dừng đọc** during playback: current and queued speech must stop, and TTS must turn off. Re-enable: messages already tracked must not replay.
 7. Check Pause, Stop, switching between approved threads and closing the panel cancel pending speech. Reopen: TTS must default off; enabling must not replay the backlog.
+
+## Two-account TTS → STT → composer acceptance
+
+Use two legitimate accounts that you control or whose participants have agreed to the test. A is the other participant; B runs this extension in branded Chrome. Only the human testers send messages. A third approved thread may be used to exercise recipient changes. Record pass/fail and counters, without private message text, audio, tokens or screenshots.
+
+1. On B, reload the extension from `C:\Users\hantu\.codex\messenger\echo-assistant\dist`, reload Messenger, select A and scroll to the bottom. Open the native Side Panel, Start monitoring, choose a Vietnamese voice, and use **Đọc thử**. Confirm real audible Vietnamese output; note if no Vietnamese voice is installed.
+2. Enable TTS. Existing history must stay silent. Have A manually send one new message: B must see and hear it exactly once. Have A send three separate messages with identical words: hear all three in order, once each. Wait two reconciliation intervals and scroll older history/back: no replay. Send a reply manually from B: outgoing messages must not be read. Unknown-direction rows, when diagnosed, must remain silent.
+3. During a queued utterance, exercise Pause, Stop, a thread switch and closing/reopening the panel. Verify the queue is cancelled according to the existing policy and reopening leaves TTS off.
+4. On B, select A and open **Giọng nói**. Permit the real microphone; speak Vietnamese, Stop, inspect the final transcript and use **Chèn vào bản nháp**. Repeat the same phrase in a second recording: both real utterances should remain. Edit the draft, preserving accents, punctuation and intentional spacing. Verify Cancel and leaving Voice release the microphone indicator. Test denied permission too.
+5. With Messenger's composer empty and **Gửi cho** identifying A, press **Chèn vào Messenger**. Inspect the actual recipient and text. Wait for a Messenger rerender, click away and return: the editor must retain the inserted text and enable its normal manual Send flow. The extension must not send anything. B manually presses Send; A confirms receipt once.
+6. Put an existing draft in Messenger. Append another panel draft, including leading/trailing spaces and multiple lines. Verify the original text and boundary spacing. Click Insert again: no duplicate suffix. Edit the panel draft and explicitly choose **Thay thế**: only then may the existing composer text be replaced. After a send/clear, start a new panel draft revision for a separate insertion.
+7. Begin a panel draft or recording for A, then switch to another approved thread while the operation is pending and again after the panel catches up. No text may be inserted into the new thread and the original panel draft must remain intact. Late recognition events must not append text. A new recording for another recipient must not be silently combined with A's retained draft.
+8. Open another Messenger tab, including the same thread URL. A retained draft must not silently follow it. In the new target, deliberately choose **Xác nhận người nhận hiện tại** only when you intend to reuse that draft; verify the displayed recipient, insert, then send manually if desired.
+9. Test a missing/disabled composer, multiple visible editors, an unreachable content script and a layout that rejects editing. Every failure must preserve the panel draft and offer manual copy/paste. No success notice should appear when the editor restores its old value. A reused editor DOM node associated with another thread may intentionally require reload/manual copy. Confirm the fallback works without sending.
+
+Live acceptance record: **NOT RUN** during the 27 October automated takeover. Real A/B Facebook sessions, Vietnamese speakers/voice availability, microphone hardware/service, Messenger's actual editor state and native Side Panel docking remain **MANUAL VERIFICATION REQUIRED**.
 
