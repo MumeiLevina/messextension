@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { extractConversation } from '../../extension/src/content/messenger-adapter';
 import { ConversationState } from '../../extension/src/core/conversation-state';
 import { buildMessengerDom, stubLayout } from '../fixtures/dom-harness';
@@ -150,8 +150,21 @@ describe('DOM extraction benchmark', () => {
     let missed = 0;
     let orderingErrors = 0;
     let duplicateEvents = 0;
+    let fixtureMs = 0;
+    let extractionMs = 0;
+    let cssMs = 0;
+    let cssReads = 0;
+    const originalStyle = window.getComputedStyle.bind(window);
+    const styleSpy = vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) => {
+      const started = performance.now();
+      const result = originalStyle(element, pseudo);
+      cssMs += performance.now() - started;
+      cssReads++;
+      return result;
+    });
 
     for (const scenario of scenarios) {
+      const fixtureStart = performance.now();
       const root = buildMessengerDom({
         title: 'Người Kiểm Thử',
         bubbles: scenario.bubbles,
@@ -160,8 +173,11 @@ describe('DOM extraction benchmark', () => {
       });
       document.body.appendChild(root);
       stubLayout(root);
+      fixtureMs += performance.now() - fixtureStart;
 
+      const extractionStart = performance.now();
       const extracted = extractConversation({ root });
+      extractionMs += performance.now() - extractionStart;
       if (extracted.unsupported) {
         missed += scenario.bubbles.length;
         continue;
@@ -186,12 +202,15 @@ describe('DOM extraction benchmark', () => {
     }
 
     const total = correct + incorrect + missed;
+    styleSpy.mockRestore();
     const accuracy = (correct / total) * 100;
     console.log(
       `[BENCH] DOM extraction: ${accuracy.toFixed(2)}% exact ` +
         `(${correct}/${total}), incorrect=${incorrect}, missed=${missed}, ` +
         `duplicateEvents=${duplicateEvents}, orderingErrors=${orderingErrors}`,
     );
+    console.log(`[BENCH] Correctness workload: fixtures=${fixtureMs.toFixed(2)} ms, extraction=${extractionMs.toFixed(2)} ms`);
+    console.log(`[BENCH] jsdom computed CSS: ${cssReads} calls, ${cssMs.toFixed(2)} ms`);
 
     expect(accuracy).toBeGreaterThanOrEqual(99);
     expect(incorrect).toBe(0);

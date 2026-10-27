@@ -1,6 +1,22 @@
 # Echo Assistant — Windows / Chrome
 
-An unpacked Manifest V3 extension for the selected, visible Facebook Messenger conversation. Monitoring is opt-in. Vietnamese dictation produces editable text; copying, pasting and sending remain manual.
+An unpacked Manifest V3 extension for the selected, visible Facebook Messenger conversation. Monitoring is opt-in. Vietnamese dictation produces editable text. You can explicitly insert a draft into the selected Messenger composer, or copy/paste manually. You always press Send yourself.
+
+## Draft insertion and Vietnamese dictation — 27 October 2026
+
+The unfinished composer integration was continued on `feature/messenger-tts-stt-complete` from `6c3ad2d`, preserving the local work. **MANUAL VERIFICATION REQUIRED:** automated tests use synthetic conversations and speech events; they do not establish compatibility with your authenticated Messenger editor, microphone, recognition service or speakers.
+
+1. Select the Messenger tab and recipient. In **Bản nháp**, wait for **Gửi cho** to identify the recipient, then type a draft. Alternatively, use **Giọng nói**, record in `vi-VN`, stop, and choose **Chèn vào bản nháp**. Edit the result as needed.
+2. Press **Chèn vào Messenger**. **Thêm vào** preserves existing composer text and adds a separating space only when neither boundary already contains whitespace. **Thay thế** is an explicit selection. Insertion never clears the panel draft.
+3. Read the recipient and text in Messenger, then manually press **Gửi**.
+
+The draft stays bound to its original tab and stable thread URL. Switching recipients or tabs does not silently retarget it. To deliberately reuse a retained draft for another recipient, choose **Xác nhận người nhận hiện tại**. Speech captured for a different recipient cannot be combined with the retained draft; the speech result stays available in the Voice view when delivery is refused. Leaving that view, or detecting a recipient change, disposes recognition; it does not clear an existing panel draft.
+
+Insertion requires one visible, enabled contenteditable or textarea within a recognized conversation, a matching tab ID, and a stable thread key. Missing/ambiguous editors, changed targets, reused editor nodes associated with another thread, and rejected editing transactions fail visibly. For conservative safety, an editor DOM node reused across threads requires manual copy/paste or a Messenger reload. No-key/label-only routes are not insertion targets. Retry IDs suppress duplicate insertion even with an existing prefix or a replaced composer node; the most recent 128 operations are retained in page memory only.
+
+Contenteditables use Chromium's native text-editing transaction; textareas use their native value setter and an input event. The adapter checks the selected target again and waits for editor reconciliation before checking visible text. Chromium may represent preserved spaces with non-breaking spaces. This verifies DOM acceptance, not Messenger's private editor model or server delivery. If insertion fails, retain the draft and use **Sao chép**, inspect the recipient, and paste manually. There is no raw DOM mutation fallback that reports success without an accepted editing transaction.
+
+STT waits for a recognized recipient before enabling recording, so initial recipient discovery cannot reset an already-started recording. Final results are deduplicated by recognition result index, preserving distinct identical utterances. Recognized final text keeps its whitespace and accents; delivery to the draft is available after recording stops. Cancel, disposal and detected recipient changes abort recognition and ignore late events. Real device/service behavior remains a manual gate. Follow the two-account test in [docs/MESSENGER_DOM_QA.md](docs/MESSENGER_DOM_QA.md).
 
 ## Read incoming messages aloud — extension 0.2.0
 
@@ -103,7 +119,7 @@ References consulted: [Rolldown WASI fallback](https://www.rolldown.rs/guide/get
 - Thread identity changes clear output before the new thread loads. An empty loading pane is not silently treated as an empty baseline; the first readable window is baselined. Query/hash changes and normal/E2EE route changes for the same thread preserve the current session. A genuinely empty thread selected at Start supports an empty baseline and its first later arrival.
 - Historical baseline data stays in content-script memory. Only post-baseline output is sent to the panel. Semantic message IDs outrank DOM positions; live element tokens and ordered neighbor context support rerenders and legitimate repeated text. See the ambiguity limit above.
 - Diagnostics report the session start/status, baseline and tail-anchor status, baseline/known/new counts, historical/duplicate/backfill/ambiguous suppressions, parser counts and timestamps, actual panel acknowledgements, and the number of Conversation DOM nodes rendered. Counts are computed from execution, not assumed from parser success.
-- Stop clears retained conversation data. Recording has its own visible Stop/Cancel controls; leaving the Voice tab disposes recognition. Draft text remains editable in the panel and is not sent automatically.
+- Stop clears retained conversation data. Recording has its own visible Stop/Cancel controls; leaving the Voice tab disposes recognition. Draft text remains editable in the panel; insertion is explicit and sending is manual.
 - Speech capability detection does not start the microphone. Record first requests microphone access, releases the permission-probe stream, then starts `vi-VN` recognition. Chrome may send audio to Google. Presence of the API does not prove that the recognition service works.
 - Tesseract's worker, core JavaScript/WASM, and `vie`/`eng` trained data are packaged under `dist/ocr`. The worker uses a local URL with `workerBlobURL: false`; the extension CSP allows self-hosted WASM and prohibits remote script loading. Browser tests initialize the real worker and both languages. OCR accuracy benchmarking and a user-facing screenshot/OCR workflow are not part of this release's completion claim.
 - Automated panel tests open the actual `sidepanel.html` as an extension tab. Native Side Panel docking, toolbar opening, and microphone behavior in that docked panel require the manual check in branded Chrome.

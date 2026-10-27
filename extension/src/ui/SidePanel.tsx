@@ -4,7 +4,7 @@ import type { Diagnostics, MessengerMessage, MonitoringState, ScanIntervalMs } f
 import { SCAN_INTERVAL_OPTIONS, DEFAULT_SCAN_INTERVAL, emptyDiagnostics } from '../core/models';
 import { ConversationView } from './ConversationView';
 import { VoiceRecorder } from './VoiceRecorder';
-import { DraftEditor } from './DraftEditor';
+import { DraftEditor, type ComposerInfo, type ComposerInsertOutcome } from './DraftEditor';
 import { DiagnosticsView } from './DiagnosticsView';
 import { SettingsView } from './SettingsView';
 import { TtsControls } from './TtsControls';
@@ -51,6 +51,9 @@ export function SidePanel() {
   const [notice, setNotice] = useState<{ text: string; kind: 'ok' | 'warn' | 'danger' } | null>(null);
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  const [liveComposer, setLiveComposer] = useState<ComposerInfo | null>(null);
+  const [draftRecipient, setDraftRecipient] = useState<ComposerInfo | null>(null);
+  const draftRequest = useRef(crypto.randomUUID());
   const [renderReport, setRenderReport] = useState<{ messages: MessengerMessage[]; count: number } | null>(null);
   const onRendered = useCallback((messages: MessengerMessage[], count: number) => setRenderReport({ messages, count }), []);
   const ttsSnapshot = useMemo(() => ({ monitoring: state.contentReady ? state.monitoring : 'idle' as MonitoringState,
@@ -169,6 +172,46 @@ export function SidePanel() {
     const response = (await send(MSG.clearConversation)) as Partial<PanelState> | null;
     if (response) setState((prev) => ({ ...prev, messages: response.messages ?? [] }));
   }, [send]);
+
+  const queryComposer = useCallback(async (): Promise<ComposerInfo | null> => {
+    const response = (await send(MSG.composerStatus)) as ComposerInfo | null;
+    return typeof response?.found === 'boolean' ? response : null;
+  }, [send]);
+
+  useEffect(() => {
+    let alive = true;
+    const pull = async () => {
+      const next = await queryComposer();
+      if (alive) setLiveComposer(next);
+    };
+    void pull();
+    const timer = setInterval(pull, 1000);
+    return () => { alive = false; clearInterval(timer); };
+  }, [queryComposer]);
+
+  const changeDraft = useCallback((value: string) => {
+    draftRequest.current = crypto.randomUUID();
+    if (!draftRef.current || !value) setDraftRecipient(value && liveComposer?.found ? liveComposer : null);
+    draftRef.current = value;
+    setDraft(value);
+  }, [liveComposer]);
+
+  const confirmRecipient = useCallback(async () => {
+    const next = await queryComposer();
+    setLiveComposer(next);
+    if (next?.found) {
+      setDraftRecipient(next);
+      draftRequest.current = crypto.randomUUID();
+    }
+  }, [queryComposer]);
+
+  const insertIntoComposer = useCallback(async (mode: 'append' | 'replace'): Promise<ComposerInsertOutcome | null> => {
+    if (!draftRecipient?.conversation || !draftRecipient.tabId) return { ok: false, error: 'conversation-changed' };
+    const expectedKey = draftRecipient.conversation.key;
+    const response = (await send(MSG.insertDraft, { text: draftRef.current, mode, expectedKey,
+      expectedTabId: draftRecipient.tabId, requestId: draftRequest.current })) as ComposerInsertOutcome | null;
+    return response;
+  }, [send, draftRecipient]);
 
   const monitoringLabel = useMemo(() => {
     switch (state.monitoring) {
@@ -329,10 +372,23 @@ export function SidePanel() {
 
         {tab === 'voice' && (
           <VoiceRecorder
-            onTranscript={(text) => {
-              if (!text) return;
-              setDraft((prev) => (prev ? `${prev} ${text}` : text));
+            key={`${liveComposer?.tabId}:${liveComposer?.conversation?.key}:${liveComposer?.found}`}
+            recipientReady={!!liveComposer?.found}
+            onTranscript={async (text) => {
+              if (!text) return false;
+              const source = liveComposer;
+              const verified = await queryComposer();
+              if (!source?.found || !verified?.found || source.tabId !== verified.tabId ||
+                source.conversation?.key !== verified.conversation?.key ||
+                (draftRef.current && (draftRecipient?.tabId !== source.tabId || draftRecipient?.conversation?.key !== source.conversation?.key))) {
+                flash('Người nhận đã đổi hoặc bản nháp dành cho người khác. Kết quả giọng nói chưa được ghép; hãy sao chép hoặc xác nhận lại người nhận của bản nháp.', 'warn');
+                return false;
+              }
+              // Retain the recipient the dictation UI belonged to. An existing
+              // draft for another recipient must never be silently retargeted.
+              changeDraft(draftRef.current ? `${draftRef.current}${/\s$/.test(draftRef.current) || /^\s/.test(text) ? '' : ' '}${text}` : text);
               flash('Đã chèn lời nói vào bản nháp.');
+              return true;
             }}
           />
         )}
@@ -340,9 +396,15 @@ export function SidePanel() {
         {tab === 'draft' && (
           <DraftEditor
             value={draft}
-            onChange={setDraft}
-            conversationLabel={state.conversation?.label ?? null}
-            conversationChanged={state.conversationChanged}
+            onChange={changeDraft}
+            conversationLabel={draftRecipient?.conversation?.label ?? null}
+            conversationChanged={!!draft && (!draftRecipient || !liveComposer?.found ||
+              draftRecipient.tabId !== liveComposer.tabId || draftRecipient.conversation?.key !== liveComposer.conversation?.key)}
+            recipientToken={`${draftRecipient?.tabId}:${draftRecipient?.conversation?.key}`}
+            currentRecipient={liveComposer?.found ? liveComposer.conversation?.label ?? null : null}
+            confirmRecipient={confirmRecipient}
+            queryComposer={queryComposer}
+            insertIntoComposer={insertIntoComposer}
           />
         )}
 

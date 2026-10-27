@@ -10,6 +10,7 @@ import {
   ADAPTER_VERSION,
   threadKeyFromUrl,
 } from './messenger-adapter';
+import { composerStatus, insertDraft, type ComposerMode } from './messenger-composer';
 import { NewMessageSession } from '../core/new-message-session';
 import { MonitoringController } from './mutation-monitor';
 import {
@@ -329,6 +330,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       pushState();
       sendResponse(snapshot());
       return true;
+    case 'echo:composerStatus':
+      // Read-only. The composer module never mutates the page from here.
+      sendResponse(composerStatus());
+      return true;
+    case 'echo:insertDraft': {
+      // Explicit user action only; never called by monitoring or TTS.
+      const text = typeof message.text === 'string' ? message.text : '';
+      const mode: ComposerMode = message.mode === 'replace' ? 'replace' : 'append';
+      const expectedKey = typeof message.expectedKey === 'string' ? message.expectedKey : null;
+      const requestId = typeof message.requestId === 'string' ? message.requestId : text;
+      void insertDraft(text, mode, expectedKey, requestId).then(sendResponse, () => sendResponse({ ok: false, error: 'mutation-failed' }));
+      return true;
+    }
     default:
       return undefined;
   }

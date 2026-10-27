@@ -100,12 +100,13 @@ export class SpeechEngine {
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const result = event.results[i];
         const alt = result[0];
-        const text = (alt?.transcript ?? '').trim();
-        if (!text) continue;
+        const text: string = alt?.transcript ?? '';
+        if (!text.trim()) continue;
         if (result.isFinal) {
           if (this.finals.get(i) === text) continue;
           this.finals.set(i, text);
-          this.finalTranscript = [...this.finals.entries()].sort(([a], [b]) => a - b).map(([, value]) => value).join(' ');
+          this.finalTranscript = [...this.finals.entries()].sort(([a], [b]) => a - b).map(([, value]) => value)
+            .reduce((all, part) => all ? `${all}${/\s$/.test(all) || /^\s/.test(part) ? '' : ' '}${part}` : part, '');
           this.opts.onEvent({
             kind: 'final',
             transcript: this.finalTranscript,

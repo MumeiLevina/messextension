@@ -24,15 +24,22 @@ async function stopPrevious(next: number | null): Promise<void> {
   }
 }
 
-async function toContent(message: { type: string; windowId?: number }): Promise<unknown> {
+async function toContent(message: { type: string; windowId?: number; expectedTabId?: number }): Promise<unknown> {
   const tab = await selectedTab(message.windowId);
   await stopPrevious(tab?.id ?? null);
   if (!tab?.id) return null;
+  if (message.type === MSG.insertDraft) {
+    // stopPrevious can await another tab. Recheck after that boundary.
+    const current = await selectedTab(message.windowId);
+    if (message.expectedTabId !== tab.id || current?.id !== tab.id) {
+      return { ok: false, error: 'conversation-changed' };
+    }
+  }
   try {
     const result = await chrome.tabs.sendMessage(tab.id, message);
     if (message.type === MSG.start || message.type === MSG.resume) monitoredTab = tab.id;
     if (message.type === MSG.stop) monitoredTab = null;
-    return { ...result, messengerTabFound: true, contentReady: true, connectionError: null };
+    return { ...result, tabId: tab.id, messengerTabFound: true, contentReady: true, connectionError: null };
   } catch {
     return { messengerTabFound: true, contentReady: false,
       connectionError: 'Tab Messenger đã mở nhưng content script chưa phản hồi. Tải lại trang sau khi nạp hoặc cập nhật tiện ích.' };
@@ -43,7 +50,8 @@ chrome.tabs.onActivated.addListener(({ tabId }) => { void stopPrevious(tabId); }
 chrome.tabs.onRemoved.addListener((tabId) => { if (monitoredTab === tabId) monitoredTab = null; });
 
 const commands: string[] = [MSG.start, MSG.pause, MSG.resume, MSG.stop, MSG.getState,
-  MSG.setInterval, MSG.clearConversation, MSG.ackConversationChange];
+  MSG.setInterval, MSG.clearConversation, MSG.ackConversationChange,
+  MSG.composerStatus, MSG.insertDraft];
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message !== 'object') return;
   if (commands.includes(message.type) && message.source !== 'echo-content') {

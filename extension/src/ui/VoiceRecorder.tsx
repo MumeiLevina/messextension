@@ -3,7 +3,8 @@ import { TranscriptionManager, type TranscriptState } from '../speech/transcript
 import { probeSpeechSupport, type SpeechCapabilities } from '../speech/speech-capabilities';
 
 interface Props {
-  onTranscript: (text: string) => void;
+  onTranscript: (text: string) => Promise<boolean>;
+  recipientReady: boolean;
 }
 
 /**
@@ -12,7 +13,7 @@ interface Props {
  * The engine is created once and disposed on unmount, so navigating between
  * tabs never leaves the microphone running.
  */
-export function VoiceRecorder({ onTranscript }: Props) {
+export function VoiceRecorder({ onTranscript, recipientReady }: Props) {
   const managerRef = useRef<TranscriptionManager | null>(null);
   const [transcript, setTranscript] = useState<TranscriptState>({
     recordingState: 'idle',
@@ -24,6 +25,7 @@ export function VoiceRecorder({ onTranscript }: Props) {
   const deliveredRef = useRef<string>('');
   const requestRef = useRef(0);
   const [requestingMicrophone, setRequestingMicrophone] = useState(false);
+  const [delivering, setDelivering] = useState(false);
 
   useEffect(() => {
     const manager = new TranscriptionManager();
@@ -50,6 +52,7 @@ export function VoiceRecorder({ onTranscript }: Props) {
   const recording = requestingMicrophone || transcript.recordingState !== 'idle';
 
   const handleStart = async () => {
+    if (!recipientReady) return;
     const request = ++requestRef.current;
     deliveredRef.current = '';
     setRequestingMicrophone(true);
@@ -77,14 +80,19 @@ export function VoiceRecorder({ onTranscript }: Props) {
   };
 
   /** Delivers the final transcript to the draft exactly once. */
-  const handleUse = () => {
-    const text = transcript.final.trim();
-    if (!text) return;
-    if (text !== deliveredRef.current) {
-      deliveredRef.current = text;
-      onTranscript(text);
-    }
-    managerRef.current?.clearFinal();
+  const handleUse = async () => {
+    const text = transcript.final;
+    if (!text.trim()) return;
+    if (text === deliveredRef.current) return;
+    deliveredRef.current = text;
+    const request = requestRef.current;
+    setDelivering(true);
+    try {
+      const accepted = await onTranscript(text);
+      if (request !== requestRef.current) return;
+      if (accepted) managerRef.current?.clearFinal();
+      else deliveredRef.current = '';
+    } finally { setDelivering(false); }
   };
 
   const handleRetry = () => {
@@ -96,6 +104,7 @@ export function VoiceRecorder({ onTranscript }: Props) {
     <>
       <section className="card">
         <h2>Nhận dạng giọng nói (vi-VN)</h2>
+        {!recipientReady && <div className="notice warn">Chọn một cuộc trò chuyện trong tab Messenger và chờ xác định người nhận trước khi ghi âm.</div>}
 
         {caps && !caps.vietnamese && <div className="notice danger">{caps.detail}</div>}
         {caps?.vietnamese && (
@@ -109,7 +118,7 @@ export function VoiceRecorder({ onTranscript }: Props) {
           <button
             className={`btn ${recording ? 'recording' : 'primary'}`}
             onClick={() => void handleStart()}
-            disabled={recording || !caps?.vietnamese}
+            disabled={recording || !recipientReady || !caps?.vietnamese}
           >
             {recording ? '● Đang ghi âm…' : '🎙 Bắt đầu ghi âm'}
           </button>
@@ -156,10 +165,10 @@ export function VoiceRecorder({ onTranscript }: Props) {
         )}
 
         <div className="btn-row" style={{ marginTop: 10 }}>
-          <button className="btn primary" onClick={handleUse} disabled={!transcript.final.trim()}>
+          <button className="btn primary" onClick={() => void handleUse()} disabled={recording || delivering || !transcript.final.trim()}>
             Chèn vào bản nháp
           </button>
-          <button className="btn" onClick={handleRetry} disabled={recording}>
+          <button className="btn" onClick={handleRetry} disabled={recording || !recipientReady}>
             Thử lại
           </button>
         </div>
